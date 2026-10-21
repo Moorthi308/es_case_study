@@ -20,7 +20,14 @@ const verifyLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardH
 const requireAuth = (req, res, next) => req.session.user ? next() : res.status(401).json({ error: 'unauthorized' });
 const requireAdmin = (req, res, next) => req.session.user?.role === 'admin' ? next() : res.status(req.session.user ? 403 : 401).json({ error: req.session.user ? 'forbidden' : 'unauthorized' });
 const requirePendingAdmin = (req, res, next) => req.session.pending ? next() : res.status(401).json({ error: 'unauthorized' });
-const establish = (req, res, user) => req.session.regenerate(() => { req.session.user = { id: user.id, username: user.username, role: user.role }; res.json({ status: 'authenticated', user: req.session.user }); });
+const establish = (req, res, user) => req.session.regenerate((regenerateError) => {
+  if (regenerateError) return res.status(500).json({ error: 'session_error' });
+  req.session.user = { id: user.id, username: user.username, role: user.role };
+  req.session.save((saveError) => {
+    if (saveError) return res.status(500).json({ error: 'session_error' });
+    res.json({ status: 'authenticated', user: req.session.user });
+  });
+});
 
 app.post('/api/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body || {};
