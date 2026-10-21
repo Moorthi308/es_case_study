@@ -36,7 +36,18 @@ app.post('/api/login', loginLimiter, async (req, res) => {
   const ok = await bcrypt.compare(password, user?.passwordHash || bcrypt.hashSync('dummy', 10));
   if (!user || !ok) return res.status(401).json({ error: 'invalid_credentials' });
   if (user.role === 'user') return establish(req, res, user);
-  try { const txId = authTx.begin(user.username); req.session.pending = { userId: user.id, txId }; res.json({ status: 'otp_required', txId }); }
+  try {
+    // A new admin login must never inherit a previously verified admin session.
+    // Otherwise /admin sees req.session.user and skips the hardware challenge.
+    delete req.session.user;
+    delete req.session.pending;
+    const txId = authTx.begin(user.username);
+    req.session.pending = { userId: user.id, txId };
+    req.session.save((saveError) => {
+      if (saveError) return res.status(500).json({ error: 'session_error' });
+      res.json({ status: 'otp_required', txId });
+    });
+  }
   catch (error) { const mapped = { DEVICE_OFFLINE: [503, 'device_offline'], BUSY: [409, 'board_busy'] }[error.message] || [500, 'server_error']; res.status(mapped[0]).json({ error: mapped[1] }); }
 });
 

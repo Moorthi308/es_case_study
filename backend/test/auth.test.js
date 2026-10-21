@@ -47,6 +47,25 @@ test('admin happy path requires card, button, and correct OTP', async () => {
   assert.ok(authTx.device.sent.includes(`AUTH_START:${txId}`));
 });
 
+test('a second admin login always starts a new hardware verification', async () => {
+  const agent = request.agent(app);
+  await agent.post('/api/login').send({ username: 'admin1', password: 'admin-password' });
+  await new Promise((resolve) => setImmediate(resolve));
+  authTx.device.simulateCard();
+  await new Promise((resolve) => setImmediate(resolve));
+  authTx.device.simulateButton();
+  await new Promise((resolve) => setImmediate(resolve));
+  const firstVerified = await agent.post('/api/admin/otp/verify').send({ otp: '123456' });
+  assert.equal(firstVerified.status, 200);
+
+  const secondLogin = await agent.post('/api/login').send({ username: 'admin1', password: 'admin-password' });
+  assert.equal(secondLogin.status, 200);
+  assert.equal(secondLogin.body.status, 'otp_required');
+  const session = await agent.get('/api/session');
+  assert.equal(session.status, 401);
+  assert.equal(authTx.device.sent.filter((command) => command.startsWith('AUTH_START:')).length, 2);
+});
+
 test('invalid OTP format is rejected before the device', async () => {
   const agent = request.agent(app);
   await agent.post('/api/login').send({ username: 'admin1', password: 'admin-password' });
